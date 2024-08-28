@@ -1,0 +1,17 @@
+﻿@inherits LayoutComponentBase
+
+<HeadContent></HeadContent>
+<body>
+    <NavMenu />
+    <div class="hidden-loading">
+        @Body
+        <div>
+            <h2 style="display: flex; justify-content: center; align-items: center; height: 100vh;">Načítání...</h2>
+        </div>
+    </div>
+</body>
+
+<style>
+    .hidden-loading > div:last-child:not(:first-child) {
+        display: none;
+</style>

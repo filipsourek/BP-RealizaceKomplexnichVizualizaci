@@ -1,0 +1,15 @@
+﻿@page "/visualization"
+
+@using SmartBuildingVisualization.Client.Pages.Components.Visualization
+
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: true ))
+
+<div class="row mx-0">
+    <div class="col-12 mt-1" style="display:flex; flex-direction:column">
+        <GraphHolder></GraphHolder>
+    </div>
+</div>
+
+@code {
+
+}

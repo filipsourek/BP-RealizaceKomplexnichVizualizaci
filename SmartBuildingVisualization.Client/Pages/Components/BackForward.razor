@@ -1,0 +1,46 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+
+@inject IDateService DateService
+
+<div class="d-flex align-items-center justify-content-center" style="min-height: 60px;">
+    <Icon Name="IconName.ArrowLeft" Size="IconSize.x2" />
+    <div class="col-auto">
+        <button type="button" class="btn btn-secondary btn-lg mx-1" @onclick="(e) => ButtonClick(false)">@ButtonBackText</button>
+    </div>
+    <div class="col-auto">
+        <button type="button" class="btn btn-secondary btn-lg mx-1" disabled="@forwardDisabled" @onclick="(e) => ButtonClick(true)">@ButtonForwardText</button>
+    </div>
+    <Icon Name="IconName.ArrowRight" Size="IconSize.x2" />
+</div>
+
+@code {
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public TimeFormat TimeFormat { get; set; }
+    [Parameter] public EventCallback<bool> OnClickCallback { get; set; }
+
+    private string ButtonBackText;
+    private string ButtonForwardText;
+
+    private bool forwardDisabled = false;
+
+    private void ButtonClick(bool goForward)
+    {
+        OnClickCallback.InvokeAsync(goForward);
+    }
+
+    protected override void OnParametersSet()
+    {
+        try
+        {
+            ButtonBackText = DateService.DateToString(DateService.AddDate(DateStart, TimeFormat, -1), TimeFormat);
+            ButtonForwardText = DateService.DateToString(DateService.ResetDate(DateService.AddDate(DateEnd, TimeFormat, 1), TimeFormat, true), TimeFormat);
+        }
+        catch (ArgumentOutOfRangeException)
+        {
+            
+        }
+        forwardDisabled = DateService.ResetDate(DateService.AddDate(DateEnd, TimeFormat, 1), TimeFormat, true) > DateTime.Now;
+    }
+}

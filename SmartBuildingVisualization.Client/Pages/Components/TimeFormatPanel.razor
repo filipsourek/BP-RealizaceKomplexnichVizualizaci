@@ -1,0 +1,55 @@
+﻿@using SmartBuildingVisualization.Shared.Models
+
+<div class="container p-1">
+    <div class="row justify-content-center gx-0">
+        @if (ShowMinutes)
+        {
+            <div class="col-1 px-1">
+                <button type="button"
+                        class="btn @(TimeFormat == TimeFormat.Minute ? "btn-success" : "btn-primary") btn-md w-100 m-0 p-1"
+                        @onclick="(e) => TimeFormatChange(TimeFormat.Minute)">
+                    Minuty
+                </button>
+            </div>
+        }
+        <div class="col-1 px-1">
+            <button type="button"
+                    class="btn @(TimeFormat == TimeFormat.Hour ? "btn-success" : "btn-primary") btn-md w-100 m-0 p-1"
+                    @onclick="(e) => TimeFormatChange(TimeFormat.Hour)">
+                Hodiny
+            </button>
+        </div>
+        <div class="col-1 px-1">
+            <button type="button"
+                    class="btn @(TimeFormat == TimeFormat.Day ? "btn-success" : "btn-primary") btn-md w-100 m-0 p-1"
+                    @onclick="(e) => TimeFormatChange(TimeFormat.Day)">
+                Dny
+            </button>
+        </div>
+        <div class="col-1 px-1">
+            <button type="button"
+                    class="btn @(TimeFormat == TimeFormat.Month ? "btn-success" : "btn-primary") btn-md w-100 m-0 p-1"
+                    @onclick="(e) => TimeFormatChange(TimeFormat.Month)">
+                Měsíce
+            </button>
+        </div>
+        <div class="col-1 px-1">
+            <button type="button"
+                    class="btn @(TimeFormat == TimeFormat.Year ? "btn-success" : "btn-primary") btn-md w-100 m-0 p-1"
+                    @onclick="(e) => TimeFormatChange(TimeFormat.Year)">
+                Roky
+            </button>
+        </div>
+    </div>
+</div>
+
+@code {
+    [Parameter] public EventCallback<TimeFormat> OnTimeFormatChangedCallback { get; set; }
+    [Parameter] public bool ShowMinutes { get; set; } = false;
+    [Parameter] public TimeFormat TimeFormat { get; set; }
+
+    private void TimeFormatChange(TimeFormat timeFormat)
+    {
+        OnTimeFormatChangedCallback.InvokeAsync(timeFormat);
+    }
+}

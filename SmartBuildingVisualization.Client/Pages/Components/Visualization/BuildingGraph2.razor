@@ -1,0 +1,151 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Services
+@using SmartBuildingVisualization.Shared.Models
+@using System.Collections.ObjectModel
+
+@inject IDataService DataService
+
+
+@if (noData && SelectedObjects.Any())
+{
+    <WarningPanel Text="Žádná dostupná data"></WarningPanel>
+
+}
+<DxPieChart T="Device"
+            Data="DeviceData"
+            SeriesClick="OnSeriesClick">
+    <DxPieChartSeries T="Device"
+                      TArgument="string"
+                      TValue="float"
+                      ValueField="d => d.Consumption.Sum(c => c.Consumption)"
+                      ArgumentField="d => GetArgumentField(d) "
+                      SummaryMethod="Enumerable.Sum">
+        <DxChartSeriesLabel Visible="true"
+                            Position="RelativePosition.Outside"
+                            FormatPattern="{value:#.#} ">
+            <DxChartSeriesLabelConnector Visible="true" />
+        </DxChartSeriesLabel>
+    </DxPieChartSeries>
+    <DxChartTooltip Enabled="true"
+                    Position="RelativePosition.Inside">
+        <div style="margin: 0.75rem">
+            <div class="fw-bold">@context.Point.Argument</div>
+            <div>Spotřeba: @($"{context.Point.Value:F2} kWh")</div>
+        </div>
+    </DxChartTooltip>
+    <DxChartTitle Text="Spotřeba">
+        <DxChartSubTitle Text="[kWh]" />
+    </DxChartTitle>
+
+    <DxChartLegend HorizontalAlignment="HorizontalAlignment.Center"
+                   VerticalAlignment="VerticalEdge.Bottom"
+                   Position="RelativePosition.Outside"
+                   Orientation="DevExpress.Blazor.Orientation.Horizontal" />
+</DxPieChart>
+@code {
+    [Parameter] public List<IObject> SelectedObjects { get; set; }
+    [Parameter] public DateTime DateStart  { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public EventCallback OnSeriesClickCallback { get; set; }
+
+    private bool noData = true;
+
+
+    private async Task OnSeriesClick(PieChartSeriesClickEventArgs args)
+    {
+        await OnSeriesClickCallback.InvokeAsync();
+    }
+
+    private ObservableCollection<Building> BuildingsStructure { get; set; } = new ObservableCollection<Building>();
+    private List<Device> DeviceData { get; set; }
+    private List<int> DeviceIds = new List<int>();
+
+    public List<IObject> ObjectData { get; set; } = new List<IObject>();
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildingsStructure = await DataService.GetStructureAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        if (SelectedObjects.Any())
+        {
+            DeviceData = await InitializeSelectedDevices();
+        }
+    }
+
+    private async Task<List<Device>> InitializeSelectedDevices()
+    {
+        List<Device> selectedDevices = SelectedObjects.SelectMany(obj => obj.GetAllDevices()).ToList();
+        DeviceIds = selectedDevices.Select(d => d.Id).ToList();
+        var deviceData = await GetDevicesAsync();
+        if (deviceData.Any(d => d.Consumption.Any(c => c.Consumption > 0)))
+        {
+            noData = false;
+        }
+        else
+        {
+            noData = true;
+        }
+
+        return deviceData;
+    }
+
+    private async Task<List<Device>> GetDevicesAsync()
+    {
+        List<Device> devices = new List<Device>();
+        if (DeviceIds.Any())
+        {
+            devices =  await DataService.GetSumDevicesDataAsync(DateStart, DateEnd, DeviceIds);
+        }
+        return devices;
+    }
+
+    private string GetArgumentField(Device device)
+    {
+        string name = "";
+
+        switch (SelectedObjects[0])
+        {
+            case Building:
+                name = SelectedObjects.First(o => o.Id == device.BuildingId).Name;
+                break;
+            case Floor:
+                name = GetObjectName(device.BuildingId, "building") +"-"+ SelectedObjects.First(o => o.Id == device.FloorId).Name;
+                break;
+            case Room:
+                name = GetObjectName(device.BuildingId, "building") + "-" + SelectedObjects.First(o => o.Id == device.RoomId).Name;
+                break;
+            case Device:
+                name = GetObjectName(device.BuildingId, "building") + "-" + SelectedObjects.First(o => o.Id == device.Id).Name;
+                break;
+        }
+        return name;
+    }
+
+
+    private string GetObjectName(int id, string type)
+    {
+        try
+        {
+            switch (type)
+            {
+                case "building":
+                    return BuildingsStructure.FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "floor":
+                    return BuildingsStructure.SelectMany(b => b.Floors).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "Room":
+                    return BuildingsStructure.SelectMany(b => b.Floors).SelectMany(f => f.Rooms).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "Device":
+                    return BuildingsStructure.SelectMany(b => b.Floors).SelectMany(f => f.Rooms).SelectMany(r => r.Devices).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                default:
+                    return "";
+            }
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+}

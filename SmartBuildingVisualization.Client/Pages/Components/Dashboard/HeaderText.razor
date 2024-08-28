@@ -1,0 +1,37 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+
+@inject IDateService DateService
+
+<p class="h3">@DateText</p>
+
+<p class="display-2">@Consumption.ToString("F2") kWh</p>
+
+@if (ShowHistory)
+{
+    <h4 class="display-7">@HistoryDateText</h4>
+    <h3 style="color: @TextColor">@HistoryConsumption.ToString("F2") kWh @PercentDiff % </h3>
+}
+
+@code {
+    [Parameter] public float Consumption { get; set; } = 0;
+    [Parameter] public float HistoryConsumption { get; set; } = 0;
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime HistoryDateStart { get; set; }
+    [Parameter] public TimeFormat TimeFormat { get; set; }
+    [Parameter] public bool ShowHistory { get; set; }
+
+    private string DateText { get; set; }
+    private string HistoryDateText { get; set; }
+    private string TextColor { get; set; }
+    private double PercentDiff { get; set; }
+
+    protected override void OnParametersSet()
+    {
+        DateText = DateService.DateToStringLongFormat(DateStart, TimeFormat);
+        HistoryDateText = DateService.DateToStringLongFormat(HistoryDateStart, TimeFormat);
+
+        TextColor = Consumption > HistoryConsumption ? "green" : "red";
+        PercentDiff = Math.Round((HistoryConsumption - Consumption) / HistoryConsumption * 100, 1);
+    }
+}

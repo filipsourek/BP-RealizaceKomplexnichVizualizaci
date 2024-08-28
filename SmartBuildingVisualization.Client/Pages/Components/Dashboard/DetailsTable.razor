@@ -1,0 +1,58 @@
+﻿@using SmartBuildingVisualization.Shared.Models
+
+<table class="table p-0 m-0">
+    <thead>
+        <tr>
+            <th scope="col"></th>
+            <th scope="col">Název</th>
+            <th scope="col">Maximum</th>
+            <th scope="col">Minimum</th>
+            <th scope="col">Průměr</th>
+        </tr>
+    </thead>
+    <tbody>
+        @foreach (Device d in Objects)
+        {
+            Consumptions = ConsumptionData.Where(x => x.DeviceId == d.Id).ToList();
+            if(Consumptions.Any())
+            {
+                <tr>
+                    <th scope="row"></th>
+                    <td>@d.Name</td>
+                    <td><b>@Consumptions.Max(x => x.Consumption).ToString("F2")</b> kWh</td>
+                    <td><b>@Consumptions.Min(x => x.Consumption).ToString("F2")</b> kWh</td>
+                    <td><b>@Consumptions.Average(x => x.Consumption).ToString("F2")</b> kWh</td>
+                </tr>
+            }
+            else
+            {
+                <tr>
+                    <th scope="row"></th>
+                    <td>@d.Name</td>
+                    <td><b>∅</b> kWh</td>
+                    <td><b>∅</b> kWh</td>
+                    <td><b>∅</b> kWh</td>
+                </tr>
+            }
+        }
+    </tbody>
+</table>
+
+
+
+@code {
+    [Parameter] public List<Device> Objects { get; set; }
+    [Parameter] public List<DeviceConsumption> ConsumptionData { get; set; }
+
+    public List<DeviceConsumption> Consumptions { get; set; }
+
+    public List<Device> Devices { get; set; } = new List<Device>();
+
+    protected override void OnParametersSet()
+    {
+        foreach (var b in Objects)
+        {
+            Devices.Add((Device)b);
+        }
+    }
+}

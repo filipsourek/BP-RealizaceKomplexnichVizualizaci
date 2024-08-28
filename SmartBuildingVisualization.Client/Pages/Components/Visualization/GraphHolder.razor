@@ -1,0 +1,113 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Services
+
+@inject IDataStorage DataStorage
+
+@if (isLoaded == true)
+{
+    <div class="d-flex flex-column">
+        <CascadingValue Value="@notifyValue" Name="storeData">
+            @foreach (var graph in dynamicGraphs)
+            {
+                <DynamicGraph @ref="component" @key="@graph.Id" Id="@graph.Id" CloseGraph="@RemoveGraph" MoveUp="@MoveUp" MoveDown="@MoveDown"></DynamicGraph>
+            }
+        </CascadingValue>
+    </div>
+    <div class="d-flex justify-content-center ">
+        <button type="button" class="btn btn-outline-primary" @onclick="OnAddGraph">Přidat graf</button>
+        <button type="button" class="btn btn-success mx-1" @onclick="OnSave">Uložit</button>
+    </div>
+}
+
+@code {
+    DynamicGraph component { set => dynamicComponents.Add(value); }
+
+    List<DynamicGraph> dynamicComponents = new List<DynamicGraph>();
+
+    private List<GraphInfo> dynamicGraphs { get; set; }
+    private bool isLoaded = false;
+
+    public bool notifyValue = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            try
+            {
+                dynamicGraphs = await DataStorage.GetData<List<GraphInfo>>("DynamicGraphs");
+            }
+            catch
+            {
+                dynamicGraphs = new List<GraphInfo>();
+            }
+
+            isLoaded = true;
+            StateHasChanged();
+        }
+    }
+
+    private async Task OnSave()
+    {
+        notifyValue = !notifyValue;
+
+        await DataStorage.SaveData("DynamicGraphs", dynamicGraphs);
+        foreach (var item in dynamicComponents)
+        {
+            if (item.selectedGraphType != null)
+            {
+                await item.DataStorageHandler();
+            }
+        }
+    }
+
+    private void OnAddGraph(MouseEventArgs e)
+    {
+        int id = dynamicGraphs.Count > 0 ? dynamicGraphs.Max(g => g.Id) + 1 : 0;
+        dynamicGraphs.Add(new GraphInfo() { Id = id });
+    }
+
+    private async Task RemoveGraph(int graphId)
+    {
+        dynamicGraphs.RemoveAll(x => x.Id == graphId);
+        dynamicComponents.RemoveAll(x => x.Id == graphId);
+        await DataStorage.SaveData("DynamicGraphs", dynamicGraphs);
+        await DataStorage.RemoveData("DynamicStorage");
+        await DataStorage.RemoveData(graphId.ToString());
+        await OnSave();
+    }
+
+    private void MoveUp(int graphId)
+    {
+        int position = dynamicGraphs.FindIndex(x => x.Id == graphId);
+
+        if (position > 0)
+        {
+            GraphInfo temp = dynamicGraphs[position - 1];
+            dynamicGraphs[position - 1] = dynamicGraphs[position];
+            dynamicGraphs[position] = temp;
+        }
+    }
+
+    private void MoveDown(int graphId)
+    {
+        int position = dynamicGraphs.FindIndex(x => x.Id == graphId);
+
+        if (position < dynamicGraphs.Count - 1)
+        {
+            GraphInfo temp = dynamicGraphs[position + 1];
+            dynamicGraphs[position + 1] = dynamicGraphs[position];
+            dynamicGraphs[position] = temp;
+        }
+    }
+
+    private class GraphInfo
+    {
+        public int Id { get; set; }
+    }
+}

@@ -1,0 +1,229 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components.Dashboard
+@using SmartBuildingVisualization.Client.Services
+@using SmartBuildingVisualization.Shared.Models
+
+@inject IDataService DataService
+@inject IDataStorage DataStorage
+
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false))
+
+<div class="d-flex flex-column text-center border m-2">
+    <div class="d-flex justify-content-end">
+        <button type="button" class="btn btn-primary align-self: flex-end" @onclick="OnCloseGraph">Zavřít graf</button>
+    </div>
+    @if (selectedGraphType is null)
+    {
+       <h2>Vyberte typ grafu</h2>
+
+        <div class="d-flex justify-content-center text-center align-items-center">
+            <button type="button" class="btn btn-primary m-1" @onclick=@(_=>OnTypeSelected(nameof(DeviceGraph)))>Sloupcový graf</button>
+            <button type="button" class="btn btn-primary m-1" @onclick=@(_=>OnTypeSelected(nameof(BuildingGraph)))>Koláčový Graf</button>
+            <button type="button" class="btn btn-primary m-1" @onclick=@(_=>OnTypeSelected(nameof(PivotGrid)))>Tabulka</button>
+            <button type="button" class="btn btn-primary m-1" @onclick=@(_=>OnTypeSelected(nameof(HeatMap)))>Heat map</button>
+        </div>
+    }
+
+    @if (selectedGraphType is not null)
+    {
+        <div class="row">
+            @if (selectedGraphType.Name != "PivotGrid")
+            {                       
+            <div class="col-2 custom-col-1-5 border-end border-dark">
+                @if (selectedGraphType.Name == "BuildingGraph")
+                {
+                        <TreeView @ref="treeView" OnCheckedItemsChanged="ObjectAdded" InitialData="@InitData"></TreeView>
+                }
+                else
+                {
+                    <TreeView2 OnCheckedItemsChanged="ObjectAdded" InitialData="@InitData" ></TreeView2>
+                }
+            </div>
+            }
+            <div class="col-10 custom-col-10-5" style="display:flex; flex-direction:column">
+                <DynamicComponent Type="@selectedGraphType" Parameters="@components[@selectedGraphType.Name]" ></DynamicComponent>
+            </div>
+            <div class="d-flex justify-content-end ">                
+                <button type="button" @onclick="OnMoveUp" class="btn btn-primary" title="Posun grafu nahoru">↑</button>
+                <button type="button" @onclick="OnMoveDown" class="btn btn-primary" title="Posun grafu dolů">↓</button>
+            </div>
+        </div>
+    }
+</div>
+
+<style>
+    .custom-col-1-5 {
+        flex: 0 0 12.5%;
+        max-width: 12.5%;
+    }
+
+    .custom-col-3-5 {
+        flex: 0 0 29%;
+        max-width: 29%;
+    }
+
+    .custom-col-10-5 {
+        flex: 0 0 87.5%;
+        max-width: 87.5%;
+    }
+</style>
+
+@code {
+    #region Parameters
+    [Parameter] public int Id { get; set; }
+    [Parameter] public EventCallback<int> CloseGraph { get; set; }
+    [Parameter] public EventCallback<int> MoveUp { get; set; }
+    [Parameter] public EventCallback<int> MoveDown { get; set; }
+    #endregion Parameters
+
+    #region Properties
+    public List<IObject> SelectedObjects { get; set; } = new List<IObject>();
+
+    private Dictionary<string, Dictionary<string, object>> components = new Dictionary<string, Dictionary<string, object>>();
+    public Type? selectedGraphType;
+
+
+    private List<IObject> InitData { get; set; } = new List<IObject>();
+
+    private string namespaceText;
+
+    TreeView treeView;
+    #endregion Propeties
+    protected override async Task OnInitializedAsync()
+    {
+        namespaceText = this.GetType().Namespace;
+        SetUpDynamicGraph();
+
+        var buildings = (await DataService.GetStructureAsync()).ToList();
+        var devices = buildings.SelectMany(b => b.GetAllDevices()).Cast<IObject>().ToList();
+        devices.AddRange(buildings);
+        devices.AddRange(buildings.SelectMany(b => b.Floors));
+        devices.AddRange(buildings.SelectMany(b => b.Floors.SelectMany(f => f.Rooms)));
+
+        List<DynamicStorage> objectList;
+
+        try
+        {
+            objectList = await DataStorage.GetData<List<DynamicStorage>>("DynamicStorage");
+        }
+        catch
+        {
+            objectList = new List<DynamicStorage>();
+        }
+        if(objectList != null)
+        {
+            DynamicStorage item = objectList.FirstOrDefault(item => item.GraphId == Id);
+            if(item != null)
+            {
+                string fullType = $"{namespaceText}.{item.Type}";
+
+                selectedGraphType = Type.GetType(fullType);
+                InitData = devices.Where(d => item.Ids.Contains(d.Id)).Cast<IObject>().ToList();
+                StateHasChanged();
+            }
+        }
+    }
+
+    private void ObjectAdded(List<IObject> id)
+    {
+        SelectedObjects.Clear();
+        SelectedObjects.AddRange(id);
+        List<Device> _Devices = new List<Device>();
+        foreach (var b in SelectedObjects)
+        {
+            _Devices.AddRange(b.GetAllDevices());
+        }
+        StateHasChanged();
+    }
+
+    private void ObjectDeleted(int id)
+    {
+        SelectedObjects.RemoveAll(item => item.Id == id); 
+    }
+
+    #region Dynamic Graph
+    private void SetUpDynamicGraph()
+    {
+        if (!components.ContainsKey("DeviceGraph"))
+        {
+            components.Add("DeviceGraph", new Dictionary<string, object> { { "SelectedObjects", SelectedObjects }, { "Id", Id} });
+        }
+        if (!components.ContainsKey("BuildingGraph"))
+        {
+            components.Add("BuildingGraph", new Dictionary<string, object> { { "SelectedObjects", SelectedObjects }, { "OnSeriesClickCallback", EventCallback.Factory.Create(this, OnClick) }, { "Id", Id } });
+        }        
+        if (!components.ContainsKey("PivotGrid"))
+        {
+            components.Add("PivotGrid", new Dictionary<string, object> { { "Id", Id } });
+        }
+        if (!components.ContainsKey("HeatMap"))
+        {
+            components.Add("HeatMap", new Dictionary<string, object> { { "SelectedObjects", SelectedObjects }, { "Id", Id } });
+        }
+    }
+
+    private void OnClick()
+    {
+        treeView.SelectAllChildFromSelectedNodes();
+    }
+
+    private async Task OnTypeSelected(string graphType)
+    {
+        string fullType = $"{namespaceText}.{graphType}";
+        switch (graphType)
+        {
+            case nameof(DeviceGraph):
+                selectedGraphType = Type.GetType(fullType);
+                break;
+            case nameof(BuildingGraph):
+                selectedGraphType = Type.GetType(fullType);
+                break;
+            case nameof(PivotGrid):
+                selectedGraphType = Type.GetType(fullType);
+                break;
+            case nameof(HeatMap):
+                selectedGraphType = Type.GetType(fullType);
+                break;
+            default:
+                break;
+        }
+    }
+
+    public async Task DataStorageHandler()
+    {
+        List<DynamicStorage> objectList;
+        try
+        {
+            objectList = await DataStorage.GetData<List<DynamicStorage>>("DynamicStorage");
+        }
+        catch
+        {
+            objectList = new List<DynamicStorage>();
+        }
+        if(objectList.Contains(objectList.FirstOrDefault(item => item.GraphId == Id)))
+        {
+            objectList.RemoveAll(item => item.GraphId == Id);
+        }
+
+        objectList.Add(new DynamicStorage { GraphId = Id, Type = selectedGraphType.Name, Ids = SelectedObjects.Select(o => o.Id).ToList() });
+
+        await DataStorage.SaveData("DynamicStorage", objectList);
+    }
+
+    #endregion 
+    private void OnCloseGraph()
+    {
+        CloseGraph.InvokeAsync(Id);
+    }
+    private void OnMoveUp()
+    {
+        MoveUp.InvokeAsync(Id);
+    }
+    private void OnMoveDown()
+    {
+        MoveDown.InvokeAsync(Id);
+    }
+}
+
+
+ 

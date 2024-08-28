@@ -1,0 +1,95 @@
+﻿@using SmartBuildingVisualization.Shared.Models
+@using System.ComponentModel
+@using SmartBuildingVisualization.Client.Pages.Components.Dashboard
+
+<DxDropDownBox @bind-Value="SelectedTimeFormat"
+               QueryDisplayText="QueryText"
+               Id="Description"
+               DropDownWidthMode="DropDownWidthMode.EditorWidth"
+               DropDownCssClass="myClass">
+    <DropDownBodyTemplate>
+        <DxListBox Data="@TimeFormatDescriptions" TData="EnumDescription" TValue="EnumDescription"
+                   Values="@(GetListBoxValues(context.DropDownBox))"
+                   TextFieldName="@nameof(EnumDescription.Description)"
+                   ValuesChanged="@(values => ListBoxValuesChanged(values, context.DropDownBox))"
+                   SelectionMode="ListBoxSelectionMode.Single">
+        </DxListBox>
+    </DropDownBodyTemplate>
+</DxDropDownBox>
+
+<style>
+    .ddBox {
+        max-width: 480px;
+        width: 100%;
+    }
+
+    .myClass {
+        height: 120px;
+    }
+</style>
+@code {
+    [Parameter] public TimeFormat TimeFormat { get; set; }
+    [Parameter] public EventCallback<TimeFormat> OnTimeFormatChangedCallback { get; set; }
+
+    public class EnumDescription
+    {
+        public TimeFormat Value { get; set; }
+        public string Description { get; set; }
+    }
+    object SelectedTimeFormat { get; set; }
+    private IEnumerable<EnumDescription> TimeFormatDescriptions { get; set; }
+
+    protected override void OnInitialized()
+    {
+        TimeFormatDescriptions = Enum.GetValues(typeof(TimeFormat))
+            .Cast<TimeFormat>()
+            .Skip(((int)TimeFormat))
+            .Select(e => new EnumDescription { Value = e, Description = GetEnumDescription(e) })
+            .ToList();
+        SelectedTimeFormat = TimeFormatDescriptions.FirstOrDefault();
+
+    }
+    protected override void OnParametersSet()
+    {
+        TimeFormatDescriptions = Enum.GetValues(typeof(TimeFormat))
+            .Cast<TimeFormat>()
+            .Skip(((int)TimeFormat))
+            .Select(e => new EnumDescription { Value = e, Description = GetEnumDescription(e) })
+            .ToList();
+        if (((EnumDescription)SelectedTimeFormat).Value < TimeFormat)
+        {
+            SelectedTimeFormat = TimeFormatDescriptions.FirstOrDefault();
+        }
+    }
+
+    private string QueryText(DropDownBoxQueryDisplayTextContext arg)
+    {
+        var val = arg.Value as EnumDescription;
+        return val.Description;
+    }
+
+    private IEnumerable<EnumDescription> GetListBoxValues(IDropDownBox dropDownBox)
+    {
+        return dropDownBox.Value as IEnumerable<EnumDescription>;
+    }
+
+    private void ListBoxValuesChanged(IEnumerable<EnumDescription> values, IDropDownBox dropDownBox)
+    {
+        dropDownBox.BeginUpdate();
+        dropDownBox.Value = values.FirstOrDefault();
+        dropDownBox.EndUpdate();
+        dropDownBox.HideDropDown();
+        OnTimeFormatChangedCallback.InvokeAsync(values.FirstOrDefault().Value);
+    }
+
+    public string GetEnumDescription(Enum value)
+    {
+        if (value == null) { return ""; }
+
+        DescriptionAttribute attribute = value.GetType()
+            .GetField(value.ToString())
+            ?.GetCustomAttributes(typeof(DescriptionAttribute), false)
+            .SingleOrDefault() as DescriptionAttribute;
+        return attribute == null ? value.ToString() : attribute.Description;
+    }
+}

@@ -1,0 +1,192 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Services
+@using System.Globalization
+@using SmartBuildingVisualization.Shared.Models
+@using System.Dynamic
+@using System.Drawing
+@using System.Diagnostics
+
+@inject IDataService DataService
+@inject IDateService DateService
+
+@if (ExpandoList != null)
+{
+    <DxGrid Data="@ExpandoList"
+            KeyFieldName="ID"
+            CustomizeElement="Grid_CustomizeElement"
+            PageSize="50"
+            AllowSort="false"
+            AllowColumnReorder="false"
+            RowClick="OnRowClick">
+        <Columns>
+            <DxGridDataColumn Width="90px" FieldName="Date" Caption="Datum" TextAlignment="GridTextAlignment.Center" CaptionAlignment="GridTextAlignment.Center" />
+            @foreach (var property in ((IDictionary<String, Object>)ExpandoList[0]).Keys.Skip(1))
+            {
+                <DxGridDataColumn Width="auto" FieldName="@property" Caption="@GetFormattedHeader(property)" TextAlignment="GridTextAlignment.Center" CaptionAlignment="GridTextAlignment.Center" />
+            }
+        </Columns>
+    </DxGrid>
+}
+
+@code {
+    [Parameter] public List<int> SelectedObjectsIds { get; set; } = new List<int>();
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public TimeFormat SelectedTimeFormat { get; set; }
+    [Parameter] public EventCallback<int> OnRowClickCallback { get; set; }
+
+    private List<ExpandoObject> ExpandoList;
+    private List<DeviceConsumption> ConsumptionData { get; set; } = new List<DeviceConsumption>();
+    private int MaxValue { get; set; }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        ConsumptionData.Clear();
+        await LoadConsumptionDataAsync();
+        ExpandoList = GenerateExpandoList(ConsumptionData);
+    }
+
+    private async Task LoadConsumptionDataAsync()
+    {
+        if (SelectedObjectsIds.Any())
+        {
+            ConsumptionData = await GetDeviceConsumptionAsync(DateStart, DateEnd, SelectedTimeFormat, SelectedObjectsIds);
+            MaxValue = ConsumptionData.Any() ? (int)Math.Round(ConsumptionData.Max(dc => dc.Consumption)) : 0;
+        }
+    }
+
+    private async Task<List<DeviceConsumption>> GetDeviceConsumptionAsync(DateTime startDate, DateTime endDate, TimeFormat timeFormat, List<int> ids)
+    {
+        var deviceData = await DataService.GetDevicesDataAsync(startDate, endDate, timeFormat - 1, ids);
+        return deviceData.SelectMany(device => device.Consumption)
+                         .GroupBy(consumption => consumption.Date)
+                         .Select(group => new DeviceConsumption(group.Key, group.Sum(consumption => consumption.Consumption), 0))
+                         .ToList();
+    }
+
+    private async Task OnRowClick(GridRowClickEventArgs e)
+    {
+        if (SelectedTimeFormat > TimeFormat.Hour)
+        {
+            await OnRowClickCallback.InvokeAsync(e.VisibleIndex);
+        }
+    }
+
+    private List<ExpandoObject> GenerateExpandoList(List<DeviceConsumption> consumptions)
+    {
+        var list = new List<ExpandoObject>();
+
+        for (DateTime date = DateStart; date <= DateEnd; date = DateService.AddDate(date, SelectedTimeFormat))
+        {
+            dynamic expando = new ExpandoObject();
+            expando.Date = DateService.DateToString(date, SelectedTimeFormat);
+            var dailyConsumptions = GetDailyConsumptions(consumptions, date);
+
+            foreach (var column in GenerateColumns(SelectedTimeFormat))
+            {
+                ((IDictionary<string, object>)expando)[column] = dailyConsumptions.FirstOrDefault(dc => GetColumnKey(dc.Date, SelectedTimeFormat) == column)?.Consumption ?? 0;
+            }
+
+            list.Add(expando);
+        }
+
+        return list;
+    }
+
+    private IEnumerable<string> GenerateColumns(TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Hour => Enumerable.Range(0, 60).Select(i => i.ToString()),
+            TimeFormat.Day => Enumerable.Range(0, 24).Select(i => i.ToString()),
+            TimeFormat.Month => Enumerable.Range(1, 31).Select(i => i.ToString()),
+            TimeFormat.Year => Enumerable.Range(1, 12).Select(i => i.ToString()),
+            _ => Enumerable.Empty<string>()
+        };
+    }
+
+    private List<DeviceConsumption> GetDailyConsumptions(List<DeviceConsumption> consumptions, DateTime date)
+    {
+        return consumptions.Where(dc => MatchesTimeFormat(dc.Date, date, SelectedTimeFormat)).ToList();
+    }
+
+    private bool MatchesTimeFormat(DateTime dataDate, DateTime targetDate, TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Hour => dataDate.Date == targetDate.Date && dataDate.Hour == targetDate.Hour,
+            TimeFormat.Day => dataDate.Date == targetDate.Date,
+            TimeFormat.Month => dataDate.Month == targetDate.Month && dataDate.Year == targetDate.Year,
+            TimeFormat.Year => dataDate.Year == targetDate.Year,
+            _ => false
+        };
+    }
+
+    private string GetColumnKey(DateTime date, TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Hour => date.Minute.ToString(),
+            TimeFormat.Day => date.Hour.ToString(),
+            TimeFormat.Month => date.Day.ToString(),
+            TimeFormat.Year => date.Month.ToString(),
+            _ => string.Empty,
+        };
+    }
+
+    private void Grid_CustomizeElement(GridCustomizeElementEventArgs e)
+    {
+        if (e.ElementType == GridElementType.DataCell)
+        {
+            var dataColumn = (IGridDataColumn)e.Column;
+
+            if (dataColumn.FieldName != "Date")
+            {
+                double value = Convert.ToDouble(e.Grid.GetRowValue(e.VisibleIndex, dataColumn.FieldName));
+                e.Style = $"background-color: {GetCellBackgroundColor((float)value, MaxValue)}";
+            }
+        }
+    }
+
+    public static string GetCellBackgroundColor(double value, float maxValue)
+    {
+        if (value == 0)
+        {
+            return "rgb(192,255,192)"; // Light green
+        }
+        if (maxValue == 0)
+        {
+            return "rgb(144,238,144)"; // Green
+        }
+
+        double ratio = value / maxValue;
+        int r, g, b;
+
+        if (ratio <= 0.5)
+        {
+            ratio /= 0.5;
+            r = (int)(144 + ratio * (255 - 144));
+            g = (int)(238 + ratio * (165 - 238));
+            b = (int)(144 + ratio * (0 - 144));
+        }
+        else
+        {
+            ratio = (ratio - 0.5) / 0.5;
+            r = 255;
+            g = (int)(165 + ratio * (0 - 165));
+            b = 0;
+        }
+
+        return $"rgb({r},{g},{b})";
+    }
+
+    private string GetFormattedHeader(string propertyName)
+    {
+        if (!propertyName.StartsWith("Datum") && SelectedTimeFormat == TimeFormat.Day)
+        {
+            int hour = int.Parse(propertyName);
+            return $"{hour:D2}:00";
+        }
+        return propertyName;
+    }
+}

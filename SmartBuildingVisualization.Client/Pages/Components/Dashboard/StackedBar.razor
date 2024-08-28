@@ -1,0 +1,469 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+@using System.Drawing
+@using System.Diagnostics
+@using System.ComponentModel
+
+@inject IDataService DataService
+@inject IDateService DateService
+
+<div class="d-flex flex-column align-items-center">
+
+    <HeaderText Consumption="Consumption" HistoryConsumption="HistoryConsumption" DateStart="DateStart" HistoryDateStart="HistoryDate" TimeFormat="SelectedTime" ShowHistory="ShowHistory"></HeaderText>
+    
+    @if (ShowHistory)
+    {
+
+        <div class="row align-items-center">
+            <div class="col-auto">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => ChangeHistoryOffset(false))">Zpět</button>
+            </div>
+            <div class="col-auto">
+                <p class="mb-0">Posun historie o:</p>
+            </div>
+            <div class="col-auto mx-0 px-0 ">
+                <DropDownBox TimeFormat="SelectedTime" OnTimeFormatChangedCallback="@((args) => OnHistoryFormatChanged(args))"></DropDownBox>
+            </div>
+            <div class="col-auto">
+                <button type="button" class="btn btn-secondary btn-sm" @onclick="@(() => ChangeHistoryOffset(true))">Dopředu</button>
+            </div>
+        </div>
+    }
+
+    @if(Objects.Count == 0)
+    {
+        <WarningPanel Text="Nejsou vybrána žádná zařízení"></WarningPanel>
+    }
+    else if(Consumption == 0)
+    {
+        <WarningPanel Text="Žádná dostupná data"></WarningPanel>
+        <button type="button" class="btn btn-primary navigation-btn me-2" @onclick="MoveToDataAsync">Posun na nejnovější data</button>
+    }
+
+    @if(ColorPalette.Count > 0)
+    {
+        <DxChart T="DeviceConsumption"
+                 Data="@ConsumptionData"
+                 Width="100%"
+                 SeriesClick="OnSeriesClickAsync"
+                 @ref="Chart"
+                 CustomizeSeriesPoint="CustomizeSeriesPoint"
+                 Height="100%">
+            @foreach (Device device in _Devices)
+            {
+                <DxChartStackedBarSeries T="DeviceConsumption"
+                                         TArgument="DateTime"
+                                         TValue="float"
+                             
+                                         ArgumentField="d => d.Date"
+                                         ValueField="d => d.Consumption"
+                                         SummaryMethod="Enumerable.Sum"
+                                         Name="@device.Name"
+                                         Filter="d=>d.DeviceId == device.Id"
+                                         MinBarHeight="1"
+                                         BarWidth="50">
+                    <DxChartSeriesLegendItem IconCssClass="empty">
+                        <TextTemplate>
+                            <span class="dxbl-chart-legend-icon dxbl-chart-legend-def-icon" style="background-color: rgb(@ColorPalette[device.Id].R, @ColorPalette[device.Id].G, @ColorPalette[device.Id].B); color: rgb();" />
+                            <span>@device.Name</span>
+                        </TextTemplate>
+                    </DxChartSeriesLegendItem>
+                </DxChartStackedBarSeries>
+
+                if (ShowHistory && device.Id == _Devices.Last().Id)
+                {
+                    <DxChartStepLineSeries Name="Historie"
+                                           T="DeviceConsumption"
+                                           TArgument="DateTime"
+                                           TValue="float"
+                                           ArgumentField="d => d.Date"
+                                           SummaryMethod="Enumerable.Sum"
+                                           ValueField="d => d.Consumption"
+                                           Filter="d => d.IsLine == true"
+                                           Color="Color.Red"
+                                           Width="3">
+                        <DxChartSeriesPoint Visible=false
+                                            HoverMode="ChartSeriesPointHoverMode.None" />
+                    </DxChartStepLineSeries>
+                }
+            }
+
+            @if (ConsumptionData.Count == 0)
+            {
+                <DxChartStackedBarSeries T="DeviceConsumption"
+                                         TArgument="DateTime"
+                                         TValue="float"
+                                         ArgumentField="d => d.Date"
+                                         ValueField="d => d.Consumption"
+                                         SummaryMethod="Enumerable.Sum">
+                    <DxChartSeriesLegendItem Visible="false" />
+                </DxChartStackedBarSeries>
+            }
+
+            <DxChartValueAxis>
+                <DxChartAxisTitle Text="Spotřeba [kWh]" />
+                <DxChartAxisRange />
+            </DxChartValueAxis>
+
+            <DxChartArgumentAxis ArgumentType="ChartAxisDataType.DateTime" TickInterval="@TickInterval" Type="ChartAxisType.Continuous" SideMarginsEnabled="false">
+                <DxChartAxisTitle Text="Datum" />
+                <DxChartAxisRange StartValue="@DateStart" EndValue="@DateEnd" />
+            </DxChartArgumentAxis>
+
+            <DxChartLegend Position="RelativePosition.Outside"
+                           HorizontalAlignment="HorizontalAlignment.Center"
+                           VerticalAlignment="VerticalEdge.Bottom">
+            </DxChartLegend>
+
+            <DxChartTooltip Enabled="true"
+                            Position="RelativePosition.Outside">
+                <div style="margin: 0.75rem">
+                    <div class="fw-bold">@context.Point.Argument</div>
+                    <div>Název: @context.Point.SeriesName</div>
+                    @if ((float)context.Point.Value < 0.001)
+                    {
+                        <div>Spotřeba: @(string.Format("{0:N2}", (float)context.Point.Value * 1000)) Wh</div>
+                    }
+                    else
+                    {
+                        <div>Spotřeba: @($"{context.Point.Value:N2}") kWh</div>
+                    }
+                </div>
+            </DxChartTooltip>
+        </DxChart>
+    }
+    <div class="row">
+        <div class="col">
+            <DxCheckBox @bind-Checked="@ShowDetails"
+                        CssClass="white-space: nowrap;">
+                Zobrazit podrobnosti
+            </DxCheckBox>
+        </div>
+        <div class="col">
+            <DxCheckBox @bind-Checked="@ShowHistory">
+                Zobrazit historii
+            </DxCheckBox>
+        </div>
+    </div>
+    @if (ShowDetails)
+    {
+        <DetailsTable Objects="_Devices" ConsumptionData="ConsumptionData" ></DetailsTable>
+    }
+
+
+</div>
+
+@code {
+    [Parameter] public TimeFormat SelectedTime { get; set; }
+    [Parameter] public List<IObject> Objects { get; set; }
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public Dictionary<int, Color> ColorPalette { get; set; }
+    [Parameter] public EventCallback<(TimeFormat, DateTime)> OnSeriesSelected { get; set; }
+
+    public bool ShowDetails { get; set; } = false;
+
+
+    private bool _showHistory;
+    public bool ShowHistory
+    {
+        get => _showHistory;
+        set
+        {
+            if (_showHistory != value)
+            {
+                _showHistory = value;
+                if (_showHistory)
+                {
+                    HistoryTimeFormat = SelectedTime;
+                    _ = GraphPrepare();
+                }
+            }
+        }
+    }
+
+
+
+    public DateTime HistoryDate { get; set; }
+
+    private async Task ChangeHistoryOffset(bool incrementUp)
+    {
+        if(incrementUp && HistoryOffset > 1)
+        {
+            HistoryOffset--;
+        }
+        if(!incrementUp)
+        {
+            HistoryOffset++;
+        }
+
+        await GraphPrepare();
+    }
+    private async Task OnHistoryFormatChanged(TimeFormat timeFormat)
+    {
+        HistoryTimeFormat = timeFormat;
+        await GraphPrepare();
+    }
+
+    void ListBoxValuesChanged(IEnumerable<string> values, IDropDownBox dropDownBox)
+    {
+        dropDownBox.BeginUpdate();
+        dropDownBox.Value = values;
+        dropDownBox.EndUpdate();
+    }
+
+    public float HistoryConsumption { get; set; } = 0;
+    public object HistoryFormat{ get; set; }
+
+    DxChart<DeviceConsumption> Chart;
+
+    private ChartAxisInterval TickInterval { get; set; }
+
+    private List<DeviceConsumption> ConsumptionData { get; set; } = new List<DeviceConsumption>();
+
+    private float Consumption { get; set; } = 0;
+    private List<Device> _Devices = new List<Device>();
+
+    private TimeFormat HistoryTimeFormat;
+    private int HistoryOffset = 1;
+
+    protected override void OnInitialized()
+    {
+        HistoryTimeFormat = SelectedTime;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+
+        if(HistoryTimeFormat < SelectedTime)
+        {
+            HistoryTimeFormat = SelectedTime;
+        }
+        ConsumptionData.Clear();
+        _Devices.Clear();
+        foreach (var b in Objects)
+        {
+            _Devices.AddRange(b.GetAllDevices());
+        }
+        if (_Devices.Count > 0)
+        {
+            await GraphPrepare();
+        }
+        else
+        {
+            Consumption = 0;
+        }
+    }
+
+    public async Task GraphPrepare()
+    {
+        TickInterval = TickIntervalBasedOnTimeFormat(SelectedTime);
+        List<int> ids = new List<int>();
+        foreach (var obj in Objects)
+        {
+            ids.AddRange(obj.GetAllDevices().Select(d => d.Id));
+        }
+        if (DateEnd > DateStart)
+        {
+            ConsumptionData = await GetConsumptions(ids, DateStart, DateEnd, SelectedTime);
+        }
+
+        Consumption = ConsumptionData.Sum(d => d.Consumption);
+        if(ShowHistory){
+            HistoryDate = GetHistoryDate(HistoryTimeFormat, DateStart);
+
+            await PrepareHistoryData(SelectedTime, DateStart);
+            Chart.RefreshData();
+        }
+    }
+
+    public async Task<List<DeviceConsumption>> GetConsumptions(List<int> deviceIds, DateTime dateStart, DateTime dateEnd, TimeFormat timeFormat)
+    {
+        var devicesData = await DataService.GetDevicesDataAsync(dateStart, dateEnd, (timeFormat - 1), deviceIds);
+
+        return devicesData.SelectMany(d => d.Consumption).ToList();
+    }
+
+    public async Task<List<DeviceConsumption>> CalculateHistoryConsumptionAsync(List<int> deviceIds, TimeFormat timeFormat, int offset)
+    {
+        List<DeviceConsumption> result = new List<DeviceConsumption>();
+
+        DateTime start = DateService.AddDate(DateStart, HistoryTimeFormat, - offset);
+        DateTime end = DateService.AddDate(DateEnd, HistoryTimeFormat, - offset);
+
+        result = await GetConsumptions(deviceIds, start, end, timeFormat);
+        return result;
+    }
+
+    private ChartAxisInterval TickIntervalBasedOnTimeFormat(TimeFormat timeFormat)
+    {
+        ChartAxisInterval tickInterval;
+
+        switch (timeFormat)
+        {
+            case TimeFormat.Hour:
+                tickInterval = ChartAxisInterval.Minute;
+                break;
+            case TimeFormat.Day:
+                tickInterval = ChartAxisInterval.Hour;
+                break;
+            case TimeFormat.Month:
+                tickInterval = ChartAxisInterval.Day;
+                break;
+            case TimeFormat.Year:
+                tickInterval = ChartAxisInterval.Month;
+                break;
+            default:
+                tickInterval = ChartAxisInterval.Hour;
+                break;
+        }
+        return tickInterval;
+    }
+
+    private DateTime GetHistoryDate(TimeFormat tf, DateTime dateStart)
+    {
+        DateTime historyDate = DateService.AddDate(dateStart, tf, - HistoryOffset);
+
+        return historyDate;
+    }
+
+    private async Task PrepareHistoryData(TimeFormat timeFormat, DateTime dateStart)
+    {
+        List<int> ids = Objects.SelectMany(obj => obj.GetAllDevices().Select(d => d.Id)).ToList();
+
+        List<DeviceConsumption> historyData = await CalculateHistoryConsumptionAsync(ids, timeFormat, HistoryOffset);
+        var processedData = ProcessDataForGraph(historyData, timeFormat, dateStart);
+
+        if (processedData.Any())
+        {
+            AdjustLastDataPointForContinuity(processedData);
+            HistoryConsumption = processedData.Sum(d => d.Consumption) - processedData.Last().Consumption;
+            ConsumptionData.AddRange(processedData);
+            StateHasChanged();
+        }
+        else
+        {
+            HistoryConsumption = 0;
+        }
+    }    
+
+    private List<DeviceConsumption> ProcessDataForGraph(List<DeviceConsumption> data, TimeFormat timeFormat, DateTime startDate)
+    {
+        var processedData = new List<DeviceConsumption>();
+        DateTime endDate = DateService.AddDate(startDate, timeFormat, 1);
+
+        foreach (var item in data)
+        {
+            DateTime adjustedDate = AdjustDateForTimeFormat(item.Date, startDate, timeFormat);
+            processedData.Add(new DeviceConsumption(adjustedDate, item.Consumption, 999, true));
+        }
+        if (data.Any())
+        {
+            FillMissingDataPoints(processedData, startDate, endDate, timeFormat);
+            ShiftData(processedData, timeFormat);
+        }
+
+
+        return processedData;
+    }
+
+    private void AdjustLastDataPointForContinuity(List<DeviceConsumption> data)
+    {
+        var lastDataPoint = data.LastOrDefault();
+        if (lastDataPoint != null)
+        {
+            lastDataPoint.Consumption = data[^2].Consumption;
+        }
+    }
+
+    private DateTime AdjustDateForTimeFormat(DateTime date, DateTime startDate, TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Hour => new DateTime(startDate.Year, startDate.Month, startDate.Day, startDate.Hour, date.Minute, 0),
+            TimeFormat.Day => new DateTime(startDate.Year, startDate.Month, startDate.Day, date.Hour, date.Minute, 0),
+            TimeFormat.Month => new DateTime(startDate.Year, startDate.Month, date.Day, date.Hour, date.Minute, 0),
+            TimeFormat.Year => new DateTime(startDate.Year, date.Month, date.Day, date.Hour, date.Minute, 0),
+        };
+    }
+
+    /// <summary>
+    /// Vyplní prázdná místa v listu spotřeby tak, kvůli souvislosti grafu
+    /// </summary>
+    private void FillMissingDataPoints(List<DeviceConsumption> data, DateTime startDate, DateTime endDate, TimeFormat timeFormat)
+    {
+        var currentDate = startDate;
+        
+        for(currentDate = startDate; currentDate <= endDate; currentDate = DateService.AddDate(currentDate, timeFormat-1, 1))
+        {
+            if (!data.Any(d => d.Date == currentDate))
+            {
+                data.Add(new DeviceConsumption(currentDate, 0, 999, true));
+            }
+        }
+        /*
+        while (currentDate <= endDate)
+        {
+            if (!data.Any(d => d.Date == currentDate))
+            {
+                data.Add(new DeviceConsumption(currentDate, 0, 999, true));
+            }
+
+            currentDate = DateService.AddDate(currentDate, timeFormat-1, 1);
+        }*/
+
+        data.Sort((x, y) => DateTime.Compare(x.Date, y.Date));
+    }
+
+    /// <summary>
+    /// Posune historická data tak, aby v grafu odpovídaly sloupcovému grafu
+    /// </summary>
+    private void ShiftData(List<DeviceConsumption> data, TimeFormat timeFormat)
+    {
+        foreach (var item in data)
+        {
+            switch (timeFormat)
+            {
+                case TimeFormat.Hour:
+                    item.Date = item.Date.AddMinutes(-0.5);
+                    break;
+                case TimeFormat.Day:
+                    item.Date = item.Date.AddHours(-0.5);
+                    break;
+                case TimeFormat.Month:
+                    item.Date = item.Date.AddDays(-0.5);
+                    break;
+                case TimeFormat.Year:
+                    item.Date = item.Date.AddDays(-15);
+                    break;
+                default:
+                    throw new ArgumentOutOfRangeException(nameof(timeFormat), "Unsupported time format.");
+            }
+        }
+    }
+
+    private async Task OnSeriesClickAsync(ChartSeriesClickEventArgs args)
+    {
+        if ((int)SelectedTime > 1)
+        {
+            await OnSeriesSelected.InvokeAsync((SelectedTime - 1, (DateTime)args.Point.Argument));
+        }
+    }
+
+    private async Task MoveToDataAsync()
+    {
+        await OnSeriesSelected.InvokeAsync((SelectedTime, new DateTime(1, 1, 1)));
+    }
+
+    void CustomizeSeriesPoint(ChartSeriesPointCustomizationSettings settings)
+    {
+        try
+        {
+            settings.PointAppearance.Color = ColorPalette[((DeviceConsumption)settings.Point.DataItems.First()).DeviceId];
+        }
+        catch (Exception e)
+        {
+            settings.PointAppearance.Color = Color.Red;
+        }
+    }
+}

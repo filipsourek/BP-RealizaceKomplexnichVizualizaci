@@ -1,0 +1,187 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+@using System.Drawing
+@using System.Collections.ObjectModel
+@using System.Linq.Expressions
+
+@inject IDataService DataService
+
+<div class="d-flex flex-column align-items-center p-0">
+    @if (DataService != null)
+    {
+        <div class="w-100">
+            <DxPieChart Data="@_Consumptions"
+                        T="DeviceConsumptionExtended"
+                        @ref="Chart"
+                        CustomizeSeriesPoint="CustomizeSeriesPoint"
+                        Diameter="1">
+
+                @foreach (var seriesInfo in SeriesInfo)
+                {
+                    <DxPieChartSeries T="DeviceConsumptionExtended"
+                                      TArgument="int"
+                                      TValue="float"
+                                      ValueField="d => d.Consumption"
+                                      ArgumentField="@seriesInfo.ArgumentField"
+                                      Filter="d => d.Date >= DateStart && d.Date < DateEnd"
+                                      SummaryMethod="Enumerable.Sum"
+                                      Name="@seriesInfo.Name">
+                        <DxChartSeriesLabel Visible="true"
+                                            Position="@(seriesInfo.Level == "Device" ? RelativePosition.Outside : RelativePosition.Inside)"
+                                            FormatPattern="{value:#.#}"
+                                            BackgroundColor="Color.Transparent">
+                            @if (seriesInfo.Level == "Device")
+                            {
+                                <DxChartSeriesLabelConnector Visible="true" Width="2" />
+                            }
+                        </DxChartSeriesLabel>
+                        <DxChartSeriesLegendItem>
+                            <TextTemplate>
+                                @{
+                                    var objectName = GetObjectName(int.Parse(@context), seriesInfo.Level);
+                                    @objectName
+                                }
+                            </TextTemplate>
+                        </DxChartSeriesLegendItem>
+                    </DxPieChartSeries>
+                }
+                <DxChartTooltip Enabled="true"
+                                Position="RelativePosition.Outside">
+                    <div style="margin: 0.75rem">
+                        <div class="fw-bold">
+                            @{
+                                var objectId = int.Parse(@context.Point.Argument.ToString());
+                                var objectName = GetObjectName(objectId, "Device");
+                                @objectName
+                            }
+                        </div>
+                        <div>Spotřeba: @($"{context.Point.Value:#,0.00} kWh")</div>
+                    </div>
+                </DxChartTooltip>
+                
+                <DxChartTitle Text="Spotřeba [kWh]">
+                </DxChartTitle>
+                <DxChartLegend HorizontalAlignment="HorizontalAlignment.Center"
+                               VerticalAlignment="VerticalEdge.Bottom"
+                               Position="RelativePosition.Outside"
+                               Orientation="DevExpress.Blazor.Orientation.Horizontal" 
+                               />
+            </DxPieChart>
+        </div>
+    }
+</div>
+
+@code {
+
+    [Parameter] public TimeFormat SelectedTime { get; set; }
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public List<IObject> Objects { get; set; }
+    [Parameter] public Dictionary<int, Color> ColorPalette { get; set; }
+
+    List<DeviceConsumptionExtended> _Consumptions { get; set; } = new List<DeviceConsumptionExtended>();
+
+    DxPieChart<DeviceConsumptionExtended> Chart;
+
+    List<Device> devices = new List<Device>();
+
+    public ObservableCollection<Building> BuildingsStructure { get; set; }
+
+    void CustomizeSeriesPoint(ChartSeriesPointCustomizationSettings settings)
+    {
+        DeviceConsumptionExtended value = (DeviceConsumptionExtended)settings.Point.DataItems.First();
+
+        List<int> ids = Objects.SelectMany(obj => obj.GetAllDevices().Select(d => d.Id)).ToList();
+
+        try
+        {
+            if (!value.Visible)
+            {
+                settings.PointAppearance.Color = System.Drawing.Color.LightGray;
+                settings.PointLabel.Connector.Visible = false;
+            }
+            else if( ids.Contains((int)settings.Point.Argument) ){
+                settings.PointAppearance.Color = ColorPalette[value.DeviceId];
+                settings.PointLabel.BackgroundColor = ColorPalette[value.DeviceId];
+            }
+        }
+        catch (Exception e)
+        {
+            settings.PointAppearance.Color = Color.Red;
+        }
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildingsStructure = await DataService.GetStructureAsync();
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        List<int> ids = Objects.SelectMany(obj => obj.GetAllDevices().Select(d => d.Id)).ToList();
+
+        _Consumptions.Clear();
+        if (Objects.Any())
+        {
+
+            List<DeviceConsumptionExtended> ConsumptionsAll = await GetConsumptionsAsync(DateStart, DateEnd, SelectedTime);
+
+            _Consumptions = await GetConsumptionsAsync(DateStart, DateEnd, SelectedTime, ids);
+            List<DeviceConsumptionExtended> result = ConsumptionsAll.Except(_Consumptions).ToList();
+            result = result.Select(x => { x.Visible = false; x.DeviceId = 0; x.BuildingId = 0; x.FloorId = 0; x.RoomId = 0; return x; }).ToList();
+            _Consumptions.AddRange(result);
+        }
+
+        if (Chart != null)
+        {
+            Chart.RefreshData();
+        }
+    }
+
+    private async Task<List<DeviceConsumptionExtended>> GetConsumptionsAsync(DateTime dateStart, DateTime dateEnd, TimeFormat timeFormat, List<int> ids = null)
+    {
+        IEnumerable<DeviceConsumptionExtended> consumption;
+        if(ids is not null)
+        {
+            consumption = await DataService.GetConsumptionsExtendedAsync(DateStart, DateEnd, SelectedTime, ids);
+        }
+        else
+        {
+            consumption = await DataService.GetConsumptionsExtendedAsync(DateStart, DateEnd, SelectedTime);
+        }
+
+        return consumption.ToList();
+    }
+
+    private string GetObjectName(int id, string level)
+    {
+        try
+        {
+            switch (level)
+            {
+                case "Building":
+                    return BuildingsStructure.FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "Floor":
+                    return BuildingsStructure.SelectMany(b => b.Floors).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "Room":
+                    return BuildingsStructure.SelectMany(b => b.Floors).SelectMany(f => f.Rooms).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                case "Device":
+                    return BuildingsStructure.SelectMany(b => b.Floors).SelectMany(f => f.Rooms).SelectMany(r => r.Devices).FirstOrDefault(o => o.Id == id)?.Name ?? "";
+                default:
+                    return "";
+            }
+        }
+        catch
+        {
+            return "Unknown";
+        }
+    }
+
+    private (string Name, Expression<Func<DeviceConsumptionExtended, int>> ArgumentField, string Level)[] SeriesInfo => new (string, Expression<Func<DeviceConsumptionExtended, int>>, string)[]
+    {
+        (Name: "Buildings", ArgumentField: d => d.BuildingId, Level: "Building"),
+        (Name: "Floors", ArgumentField: d => d.FloorId, Level: "Floor"),
+        (Name: "Rooms", ArgumentField: d => d.RoomId, Level: "Room"),
+        (Name: "Device consumption", ArgumentField: d => d.DeviceId, Level: "Device")
+    };
+}

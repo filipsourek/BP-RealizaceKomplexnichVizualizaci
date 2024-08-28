@@ -1,0 +1,168 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+@using System.Collections.ObjectModel
+
+@inject IDataService DataService
+@inject IDataStorage DataStorage
+
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: true))
+
+
+<div class="d-flex align-items-center mb-2">
+    <p class="mb-0">Filtr:</p>
+    <DxComboBox NullText="Vyber oddělení "
+                Data="@Faculties"
+                @bind-Value="@SelectedDepartment"
+                TextFieldName="Name"
+                ValueFieldName="Name"
+                ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto" />
+</div>
+
+<div>
+    <DxTreeView Data="@BuildingsData"
+                AnimationType="LayoutAnimationType.Slide"
+                ShowFilterPanel="false"
+                @bind-FilterString=@FilterString
+                FilterMode="NavigationFilterMode.EntireBranch"
+                FilterMinLength="1"
+                CustomFilter="@FilterByDepartment"
+                CheckMode="TreeViewCheckMode.Recursive"
+                CheckedChanged="OnCheckingChanged"
+                CheckNodeByClick="true"               
+                @ref=DxTreeView>
+        <DataMappings>
+            <DxTreeViewDataMapping Text="Name" Children="Floors" />
+            <DxTreeViewDataMapping Level="1" Text="Name" Children="Rooms" />
+            <DxTreeViewDataMapping Level="2" Text="Name" Children="Devices" />
+        </DataMappings>
+    </DxTreeView>
+</div>
+
+@code {
+    [Parameter] public Action<List<IObject>> OnCheckedItemsChanged { get; set; }
+    [Parameter] public List<IObject> InitialData { get; set; }    
+    [Parameter] public string StorageKey { get; set; }
+
+    private ObservableCollection<Building> BuildingsData = new ObservableCollection<Building>();
+    private ObservableCollection<Department> Faculties = new ObservableCollection<Department>();
+    private Department? selectedDepartment;
+    private string FilterString = "";
+    private bool InitialLoad = true;
+    private bool DataLoaded = false;
+    private DxTreeView DxTreeView;
+    private bool UncheckUnvisibleItems = false;
+
+    public Department? SelectedDepartment
+    {
+        get => selectedDepartment;
+        set
+        {
+            if (selectedDepartment != value)
+            {
+                selectedDepartment = value;
+                FilterString = selectedDepartment?.DepartmentId.ToString() ?? "";
+                UncheckUnvisibleItems = true;
+
+                DataStorage.SaveData(StorageKey, selectedDepartment);
+            }
+        }
+    }
+
+    protected override void OnInitialized()
+    {
+        Faculties = DataService.GetAllDepartments();
+
+    }
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildingsData = await DataService.GetStructureAsync();
+        DataLoaded = true;
+        try
+        {
+            SelectedDepartment = await DataStorage.GetData<Department>(StorageKey);
+        }
+        catch (KeyNotFoundException)
+        {
+            SelectedDepartment = null;
+        }
+
+        StateHasChanged();
+    }
+
+    protected override void OnParametersSet()
+    {
+
+        if (InitialLoad && DataLoaded && InitialData.Any())
+        {
+            CheckInitialNodes();
+            InitialLoad = false;
+        }
+    }
+
+    protected override void OnAfterRender(bool firstRender)
+    {
+        if (firstRender)
+        {
+            CheckInitialNodes();
+
+        }
+        if (UncheckUnvisibleItems && FilterString != "")
+        {
+            DeselectUnvisibleItems();
+        }
+
+    }
+
+    private void ExpandCheckedNodes()
+    {
+        
+        if(DxTreeView != null)
+        {
+            var checkedNodes = DxTreeView.GetCheckedNodeInfo()
+            .Where(item => item.IsLeaf);
+
+            foreach (var v in checkedNodes)
+            {
+                DxTreeView.ExpandToNode((n) => n.DataItem == v.DataItem);
+            }
+        }
+    }
+    private void DeselectUnvisibleItems()
+    {
+        var checkedNodes = DxTreeView.GetCheckedNodeInfo()
+            .Where(item => item.Level == 2 && ((Room)item.DataItem).DepartmentId.ToString() != FilterString)
+            .Select(item => (IObject)item.DataItem)
+            .ToList();
+
+        DxTreeView.SetNodesChecked(node => checkedNodes.Contains(((IObject)node.DataItem)), false);
+        UncheckUnvisibleItems = false;
+    }
+
+    private void CheckInitialNodes()
+    {
+        var ids = (InitialData ?? Enumerable.Empty<IObject>())
+            .Select(item => item.Id); if (ids.Any())
+        {
+            DxTreeView?.SetNodesChecked(node => ids.Contains(((IObject)node.DataItem).Id), true);
+        }
+        ExpandCheckedNodes();
+    }
+
+    private bool FilterByDepartment(ITreeViewNodeInfo node)
+    {
+        return node.DataItem is Room room && room.DepartmentId.ToString() == FilterString;
+    }
+
+    private void OnCheckingChanged(TreeViewCheckedChangedEventArgs args)
+    {
+        var checkedItems = args.CheckedItems
+                             .Where(item => item.Level == 3)
+                             .Select(item => (IObject)item.DataItem)
+                             .ToList();
+
+        OnCheckedItemsChanged?.Invoke(checkedItems);
+    }
+}
+
+    

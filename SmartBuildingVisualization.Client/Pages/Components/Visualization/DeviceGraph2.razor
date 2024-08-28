@@ -1,0 +1,185 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components.Base
+@using SmartBuildingVisualization.Client.Pages.Components.Dashboard
+@using SmartBuildingVisualization.Shared.Models
+
+@inject IDataService DataService
+@inject IDateService DateService
+
+<div class="d-flex flex-row">
+    <DxCheckBox CssClass=""
+                @bind-Checked="@ExtremesChecked">
+        Zvýraznit extrémy
+    </DxCheckBox>
+</div>
+<div class="row">
+    <div class="col-md-9">
+        <DxChart T="DeviceConsumption"
+                 Data="@ConsumptionData"
+                 CustomizeSeriesPoint="@PreparePointColor"
+                 SeriesClick="OnSeriesClick"
+                 @ref="Chart"
+                 Height="500px">
+            <DxChartLegend AllowToggleSeries="true"
+                           Orientation="DevExpress.Blazor.Orientation.Horizontal"
+                           HorizontalAlignment="HorizontalAlignment.Center"
+                           VerticalAlignment="VerticalEdge.Bottom" 
+                           Position="RelativePosition.Outside" >
+            </DxChartLegend>
+            <DxChartValueAxis Type="ChartAxisType.Continuous" ValueType="ChartAxisDataType.Numeric" ZeroAlwaysVisible="true">
+                <DxChartAxisTitle Text="Spotřeba [kWh]" />
+            </DxChartValueAxis>
+
+            @foreach (var device in SelectedDevices)
+            {
+                <DxChartBarSeries Name="@device.Name"
+                                  T="DeviceConsumption"
+                                  TArgument="DateTime"
+                                  TValue="float"
+                                  ArgumentField="d => d.Date"
+                                  ValueField="d => d.Consumption"
+                                  Filter="@(d => (d.DeviceId == device.Id))"
+                                  BarWidth="30"
+                                  MinBarHeight="5"
+                                  >
+                </DxChartBarSeries>
+            }
+            <DxChartArgumentAxis ArgumentType="ChartAxisDataType.DateTime"
+                                 TickInterval="@TickInterval"
+                                 Type="ChartAxisType.Continuous"
+                                 SideMarginsEnabled="false">
+                <DxChartAxisTitle Text="Čas" />
+                <DxChartAxisRange StartValue="@DateStart"
+                                  EndValue="@DateEnd" />
+            </DxChartArgumentAxis>
+
+        </DxChart>
+    </div>
+
+    <div class="col-md-3 d-flex align-items-center">
+        <DetailsTable ConsumptionData="ConsumptionData" Objects="SelectedDevices"></DetailsTable>
+    </div>
+</div>
+
+@code {
+    [Parameter] public List<Device> SelectedDevices { get;  set; }
+    [Parameter] public List<int> DeviceIds { get; set; }
+    [Parameter] public DateTime DateStart { get; set; }
+    [Parameter] public DateTime DateEnd { get; set; }
+    [Parameter] public TimeFormat TimeFormat { get; set; }
+    [Parameter] public EventCallback<DateTime> OnSerieClickCallback { get; set; }
+
+    private List<DeviceConsumption> ConsumptionData { get; set; } = new List<DeviceConsumption>();
+
+    public bool AverageChecked { get; set; } = false;
+
+    private bool _extremesChecked = false;
+    public bool ExtremesChecked {
+        get
+        {
+            return _extremesChecked;
+        }
+        set{
+            _extremesChecked = value;
+            Chart.RefreshData();
+        }
+    }
+
+    DxChart<DeviceConsumption> Chart;
+    public ChartAxisInterval TickInterval { get; set; }
+
+    protected override async Task OnInitializedAsync()
+    {
+
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        ConsumptionData = await LoadConsumptionDataAsync();    
+        SetGraphAxis(TimeFormat);
+    }
+
+    private async Task<List<DeviceConsumption>> LoadConsumptionDataAsync()
+    {
+        if (DeviceIds.Any())
+        {
+            var devicesData = await DataService.GetDevicesDataAsync(DateStart, DateEnd, TimeFormat, DeviceIds);
+            var data = devicesData.SelectMany(d => d.Consumption).ToList();
+            return data;
+        }
+        return new List<DeviceConsumption>();
+    }
+
+
+    private void SetGraphAxis(TimeFormat tf)
+    {
+        switch (tf)
+        {
+            case TimeFormat.Minute:
+                TickInterval = ChartAxisInterval.Minute;
+                break;
+            case TimeFormat.Hour:
+                TickInterval = ChartAxisInterval.Hour;
+                break;
+            case TimeFormat.Day:
+                TickInterval = ChartAxisInterval.Day;
+                break;
+            case TimeFormat.Month:
+                TickInterval = ChartAxisInterval.Month;
+                break;
+            case TimeFormat.Year:
+                TickInterval = ChartAxisInterval.Year;
+                break;
+            default:
+                TickInterval = ChartAxisInterval.Year;
+                break;
+        }
+    }
+
+    private async Task OnSeriesClick(ChartSeriesClickEventArgs args)
+    {
+        DateTime selectedDate = (DateTime)args.Point.Argument;
+
+        if(TimeFormat > TimeFormat.Minute)
+        {
+            await OnSerieClickCallback.InvokeAsync(selectedDate);
+        }
+
+    }
+
+    protected void PreparePointColor(ChartSeriesPointCustomizationSettings pointSettings)
+    {
+        float value = (float)pointSettings.Point.Value;
+        
+        if (ExtremesChecked && ConsumptionData.Any())
+        {
+            float maxConsumption = ConsumptionData.Max(d => d.Consumption);
+            float minConsumption = ConsumptionData.Min(d => d.Consumption);
+
+            pointSettings.PointLabel.Position = RelativePosition.Outside;
+            pointSettings.PointLabel.Connector.Visible = true;
+            if (maxConsumption == minConsumption)
+            {
+                pointSettings.PointLabel.Visible = true;
+                pointSettings.PointLabel.FormatPattern = "MIN \n MAX";
+                pointSettings.PointLabel.BackgroundColor = System.Drawing.Color.Orange;
+            }
+            else
+            {
+                if (value == maxConsumption)
+                {
+                    pointSettings.PointLabel.Visible = true;
+                    pointSettings.PointLabel.FormatPattern = "MAX";
+                    pointSettings.PointLabel.BackgroundColor = System.Drawing.Color.Red;
+                }
+                if (value == minConsumption)
+                {
+                    pointSettings.PointLabel.Visible = true;
+                    pointSettings.PointLabel.FormatPattern = "MIN";
+                    pointSettings.PointLabel.BackgroundColor = System.Drawing.Color.Blue;
+                }
+            }
+        }
+        
+    }
+}

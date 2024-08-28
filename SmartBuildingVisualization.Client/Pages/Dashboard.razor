@@ -1,0 +1,270 @@
+﻿@page "/dashboard"
+@page "/"
+@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components
+@using SmartBuildingVisualization.Client.Pages.Components.Dashboard
+@using SmartBuildingVisualization.Shared.Models
+@using System.ComponentModel
+@using System.Drawing
+@using System.Diagnostics
+
+@inject IDataService DataService
+@inject IDataStorage DataStorage
+@inject IDateService DateService
+
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: false ))
+
+<div class="container-fluid min-vh-100 p-1">
+    <div class="row mt-3 mx-0 ">
+        <div class="col-2 custom-col-1-5 mb-md-0 d-flex">
+            <div class="p-0 d-flex flex-column w-100 align-items-left ">
+                <TreeView2 OnCheckedItemsChanged="ObjectAdded" InitialData="@InitData" StorageKey="DashboardSelectedDepartment"></TreeView2>
+            </div>
+        </div>
+        <div class="col-7 mb-3 mb-md-0 d-flex">
+            <div class="p-0 d-flex flex-column w-100 border-end border-start">
+                <TimeFormatPanel OnTimeFormatChangedCallback="@((args) => SelectedTimeChanged(args))" TimeFormat="SelectedTimeFormat"></TimeFormatPanel>
+
+                @if (true)
+                {
+                    <BackForward DateStart="DateStart" DateEnd="DateEnd" TimeFormat="SelectedTimeFormat" OnClickCallback="@((args) => ChangeOffset(args))"></BackForward>
+
+                    <StackedBar SelectedTime="@SelectedTimeFormat" 
+                                Objects="@SelectedObjects" 
+                                DateStart="@DateStart" 
+                                DateEnd="@DateEnd" 
+                                OnSeriesSelected="@((args) => ChangeData(args.Item1, args.Item2))" 
+                                ColorPalette="@ColorPalette">
+                    </StackedBar>
+                }
+            </div>
+        </div>
+        <div class="col-3 custom-col-3-5 d-flex align-items-center justify-content-center p-0">
+            <div class="p-0 d-flex flex-column w-100">
+                <NestedDonut SelectedTime="@SelectedTimeFormat" Objects="@SelectedObjects" DateStart="@DateStart" DateEnd="@DateEnd" ColorPalette="@ColorPalette"></NestedDonut>
+            </div>
+        </div>
+    </div>
+    <div class="row mt-3">
+        <div class="">
+        </div>
+    </div>
+</div>
+
+<style>
+    .custom-col-1-5 {
+        flex: 0 0 12.5%;
+        max-width: 12.5%;
+    }
+
+    .custom-col-3-5 {
+        flex: 0 0 29%;
+        max-width: 29%;
+    }
+</style>
+
+@code {
+    private TimeFormat _selectedTimeFormat;
+    private TimeFormat SelectedTimeFormat
+    {
+        get => _selectedTimeFormat;
+        set
+        {
+            _selectedTimeFormat = value;
+            DataStorage.SaveData("DashboardSelectedTime", (int)value);
+        }
+    }
+
+    private List<int> SelectedIds;
+    private List<IObject> SelectedObjects = new List<IObject>();
+
+    private List<IObject> InitData = new List<IObject>();
+
+    private Dictionary<int, Color> ColorPalette = new Dictionary<int, Color>();
+    private int ColorIndex = 0;
+
+    private bool OnInitialized;
+
+    private DateTime _dateStart;
+
+    private DateTime DateStart
+    {
+        get => _dateStart;
+        set
+        {
+            _dateStart = value;
+            DataStorage.SaveData("DashboardDate", value);
+        }
+    }
+
+    private DateTime DateEnd;
+
+    protected override async Task OnInitializedAsync()
+    {
+        var buildings = (await DataService.GetStructureAsync()).ToList();
+        var devices = buildings.SelectMany(b => b.GetAllDevices()).ToList();
+
+        OnInitialized = true;
+    }
+
+    /// <summary>
+    /// Metoda volaná po vykreslení komponenty. Načte data z LocalStorage
+    /// </summary>
+    /// <param name="firstRender">True, pokud je vykreslováno poprvé.</param>
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+
+        if (OnInitialized)
+        {          
+            await LoadData();
+
+            SelectedObjects.Clear();
+            var allDevices = (await DataService.GetStructureAsync())
+                .SelectMany(b => b.GetAllDevices())
+                .Where(device => SelectedIds?.Contains(device.Id) == true)
+                .ToList();
+            SelectedObjects.AddRange(allDevices);
+            InitData.AddRange(allDevices);
+
+            InitSetup(SelectedTimeFormat);
+            StateHasChanged();
+            OnInitialized = false;
+        }
+    }
+    /// <summary>
+    /// Metoda volaná při přidání z potomka TreeView2
+    /// </summary>
+    /// <param name="id">Seznam id přidaných objektů.</param>
+    private void ObjectAdded(List<IObject> objects)
+    {
+        SelectedObjects = objects.ToList();
+        UpdateDeviceColors();
+        DataStorage.SaveData("DashboardSelectedIds", SelectedObjects.Select(o => o.Id));
+        StateHasChanged();
+    }
+
+    public async Task ChangeOffset(bool goBack)
+    {
+        await AdjustDates(goBack ? 1 : -1);
+    }
+
+    private async Task LoadData()
+    {
+        SelectedTimeFormat = await GetDataOrDefault("DashboardSelectedTime", TimeFormat.Year);
+        SelectedIds = await GetDataOrDefault<List<int>>("DashboardSelectedIds", null);
+        DateStart = await GetDataOrDefault("DashboardDate", DateTime.MinValue);
+    }
+
+    private async Task<T> GetDataOrDefault<T>(string key, T defaultValue)
+    {
+        try
+        {
+            return await DataStorage.GetData<T>(key);
+        }
+        catch (KeyNotFoundException)
+        {
+            return defaultValue;
+        }
+    }
+
+    private async void InitSetup(TimeFormat timeFormat)
+    {
+        if(DateStart != DateTime.MinValue)
+        {
+            DateEnd = DateService.ResetDate(DateStart, SelectedTimeFormat, false);
+        }
+        else
+        {
+            DateTime dateNow = DateTime.Now;
+            SelectedTimeFormat = timeFormat;
+
+            DateStart = DateService.ResetDate(dateNow, timeFormat, true);
+            DateEnd = DateService.ResetDate(dateNow, timeFormat, false);
+        }
+    }
+
+    private async Task AdjustDates(int offset)
+    {
+        DateStart = DateService.AddDate(DateStart, SelectedTimeFormat, offset);
+        DateEnd = DateService.ResetDate(DateService.AddDate(DateEnd, SelectedTimeFormat, offset), SelectedTimeFormat, false);
+        await DataStorage.SaveData("DashboardDate", DateStart);
+        await Task.CompletedTask;
+    }
+
+    private async Task ChangeData(TimeFormat timeFormat, DateTime startDate)
+    {
+        if (startDate.Year == 1)
+        {
+            var deviceIds = SelectedObjects.Select(d => d.Id).ToList();
+            startDate = await DataService.GetNewestDateAsync(deviceIds);
+        }
+        SelectedTimeFormat = timeFormat;
+
+        DateStart = DateService.ResetDate(startDate, timeFormat, true);
+        DateEnd = DateService.ResetDate(startDate, timeFormat, false);
+    }
+
+    /// <summary>
+    /// Metoda volaná při změně formátu času
+    /// </summary>
+    /// <param name="timeFormat">Enum formátu času</param>
+    public void SelectedTimeChanged(TimeFormat timeFormat)
+    {
+        if(timeFormat > SelectedTimeFormat)
+        {
+            SelectedTimeFormat = timeFormat;
+            DateStart = DateService.ResetDate(DateStart, timeFormat, true);
+            DateEnd = DateService.ResetDate(DateEnd, timeFormat, false);
+        }
+        else
+        {
+            DateTime dateNow = DateTime.Now;
+            SelectedTimeFormat = timeFormat;
+
+            DateStart = DateService.ResetDate(dateNow, timeFormat, true);
+            DateEnd = DateService.ResetDate(dateNow, timeFormat, false);
+            SelectedTimeFormat = timeFormat;
+        }
+    }
+
+    private readonly List<Color> PredefinedColors = new List<Color> {
+        Color.Blue, Color.Green, Color.Orange, Color.Purple,
+        Color.Cyan, Color.Magenta, Color.Gray, Color.Black, Color.Yellow
+    };
+
+    private Color GenerateColor(int index)
+    {
+        int r = (index * 67) % 256;
+        int g = (index * 97) % 256;
+        int b = (index * 137) % 256;
+
+        return Color.FromArgb(255, r, g, b);
+    }
+
+    private void UpdateDeviceColors()
+    {
+        foreach (var device in SelectedObjects.OfType<Device>())
+        {
+            if (!ColorPalette.ContainsKey(device.Id))
+            {
+                ColorPalette[device.Id] = GetNextColor();
+                ColorIndex++;
+            }
+        }
+    }
+    /// <summary>
+    /// Nejříve použije předdefinované barvy, pokud je zařízení více, vygeneruje nové barvy
+    /// </summary>
+    /// <returns></returns>
+    private Color GetNextColor()
+    {
+        if (ColorIndex < PredefinedColors.Count)
+        {
+            return PredefinedColors[ColorIndex];
+        }
+        else
+        {
+            return GenerateColor(ColorIndex - PredefinedColors.Count);
+        }
+    }
+}

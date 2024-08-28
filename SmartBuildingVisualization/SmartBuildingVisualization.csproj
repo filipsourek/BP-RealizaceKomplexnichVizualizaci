@@ -1,0 +1,34 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <Nullable>enable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <Compile Remove="wwwroot\bootstrap\fonts\**" />
+    <Content Remove="wwwroot\bootstrap\fonts\**" />
+    <EmbeddedResource Remove="wwwroot\bootstrap\fonts\**" />
+    <None Remove="wwwroot\bootstrap\fonts\**" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Remove="MOCK_DATA %281%29.json" />
+    <Content Remove="wwwroot\bootstrap\bootstrap-icons.css" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Include="wwwroot\css\open.iconic\font\fonts\open-iconic.svg" />
+    <None Include="wwwroot\css\open.iconic\README.md" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\SmartBuildingVisualization.Client\SmartBuildingVisualization.Client.csproj" />
+    <ProjectReference Include="..\SmartBuildingVisualization.Shared\SmartBuildingVisualization.Shared.csproj" />
+    <PackageReference Include="Blazor.Bootstrap" Version="3.0.0-preview.2" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.7" />
+    <PackageReference Include="Newtonsoft.Json" Version="13.0.3" />
+  </ItemGroup>
+
+</Project>

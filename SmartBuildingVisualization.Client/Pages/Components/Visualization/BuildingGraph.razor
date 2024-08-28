@@ -1,0 +1,98 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components.Base
+@using SmartBuildingVisualization.Shared.Models
+@using System.Text.Json
+
+@inject IDateService DateService
+@inject IDataService DataService
+
+@inherits GraphBase
+
+<div class="container mt-2">
+
+    <div class="mt-3">
+        @if (!SelectedObjects.Any())
+        {
+            <WarningPanel Text="Nejsou vybrána žádná zařízení"></WarningPanel>
+        }
+    </div>
+</div>
+
+<div>
+    <BuildingGraph2 SelectedObjects="SelectedObjects" DateStart="DateStart" DateEnd="DateEnd" OnSeriesClickCallback="@OnClickHandle"></BuildingGraph2>
+</div>
+<div style="display: flex; justify-content: center; margin-top: 20px;">
+    <DxDateRangePicker @bind-StartDate="@DateStart"
+                       @bind-EndDate="@DateEnd"
+                       Style="width: 300px;" />
+</div>
+
+@code {
+    [Parameter] public EventCallback OnSeriesClickCallback { get; set; }
+
+    private bool firstRender = true;
+
+    private bool dataReady = false;
+
+    protected override void OnInitialized()
+    {
+        oldUpdate = newUpdate;
+        dataReady = false;
+        TimeFormat = TimeFormat.Year;
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if(firstRender && SelectedObjects.Any())
+        {
+            await InitSetup(TimeFormat);
+            firstRender = false;
+        }
+        if (newUpdate != oldUpdate)
+        {
+            await StoreData();
+            oldUpdate = newUpdate;
+        }
+    }
+
+    private async Task InitSetup(TimeFormat timeFormat)
+    {
+        try
+        {
+            List<object> test = await DataStorage.GetData<List<object>>(Id.ToString());
+            DateStart = ((JsonElement)test[1]).GetDateTime();
+            DateEnd = ((JsonElement)test[2]).GetDateTime();
+        }
+        catch
+        {
+            await DefaultInit(timeFormat);
+        }
+    }
+
+    private async Task DefaultInit(TimeFormat timeFormat)
+    {
+        DateTime date = await DataService.GetNewestDateAsync(DeviceIds);
+        TimeFormat = timeFormat;
+        DateEnd = date;
+        DateStart = DateService.ResetDate(DateService.AddDate(DateEnd, timeFormat, -GetOffset(timeFormat)), timeFormat, true);
+    }
+
+    private async Task OnClickHandle()
+    {
+        await OnSeriesClickCallback.InvokeAsync();
+    }
+
+    private int GetOffset(TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Minute => 60,
+            TimeFormat.Hour => 24,
+            TimeFormat.Day => 31,
+            TimeFormat.Month => 1,
+            TimeFormat.Year => 1,
+            _ => 10,
+        };
+    }
+}

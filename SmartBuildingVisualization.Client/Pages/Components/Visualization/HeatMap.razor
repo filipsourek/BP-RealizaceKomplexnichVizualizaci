@@ -1,0 +1,140 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components.Base
+@using SmartBuildingVisualization.Client.Services
+@using System.Globalization
+@using SmartBuildingVisualization.Shared.Models
+@using System.Dynamic
+@using SmartBuildingVisualization.Client.Pages.Components
+@using System.Text.Json
+
+@inject IDataService DataService
+@inject IDateService DateService
+
+@inherits GraphBase
+
+<div class="container mt-2">
+
+    <TimeFormatPanel OnTimeFormatChangedCallback="@((args) => TimeFormatChange(args))" TimeFormat="TimeFormat"></TimeFormatPanel>
+
+    <div class="mt-3">
+        @if (!SelectedObjects.Any())
+        {
+            <WarningPanel Text="Nejsou vybrána žádná zařízení"></WarningPanel>
+        }
+        else
+        {
+            <BackForward DateStart="DateStart" DateEnd="DateEnd" TimeFormat="TimeFormat" OnClickCallback="@((args) => MoveCallback(args))"></BackForward>
+        }
+    </div>
+</div>
+
+<div>
+    <HeatMapGraph SelectedObjectsIds="DeviceIds" DateStart="DateStart" DateEnd="DateEnd" SelectedTimeFormat="TimeFormat" OnRowClickCallback="@((args) => ChangeDate(args, TimeFormat))"></HeatMapGraph>
+</div>
+
+@code {
+    private bool firstRender = true;
+
+    protected override async Task OnInitializedAsync()
+    {
+        oldUpdate = newUpdate;
+        TimeFormat = TimeFormat.Year;
+        await InitSetup(TimeFormat);
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        await base.OnParametersSetAsync();
+        if (DeviceIds.Any())
+        {
+            if (firstRender)
+            {
+                await InitSetup(TimeFormat);
+                firstRender = false;
+            }
+        }
+        if (newUpdate != oldUpdate)
+        {
+            await StoreData();
+            oldUpdate = newUpdate;
+        }
+    }
+
+    private void MoveCallback(bool goForward)
+    {
+        AdjustDates(goForward ? 1 : -1);
+    }
+
+    private void TimeFormatChange(TimeFormat timeFormat)
+    {
+        if (timeFormat > TimeFormat)
+        {
+            TimeFormat = timeFormat;
+            DateStart = DateService.ResetDate(DateService.AddDate(DateStart, timeFormat, -GetOffset(timeFormat) / 2), timeFormat, true);
+            DateEnd = DateService.ResetDate(DateService.AddDate(DateEnd, timeFormat, GetOffset(timeFormat) / 2), timeFormat, false);
+        }
+        else
+        {
+            DefaultInit(timeFormat);
+        }
+    }
+
+    private async Task InitSetup(TimeFormat timeFormat)
+    {
+        try
+        {
+            List<object> test = await DataStorage.GetData<List<object>>(Id.ToString());
+            TimeFormat = (TimeFormat)((JsonElement)test[0]).GetInt16();
+
+            DateStart = ((JsonElement)test[1]).GetDateTime();
+            DateEnd = ((JsonElement)test[2]).GetDateTime();
+        }
+        catch
+        {
+            DefaultInit(timeFormat);
+        }
+    }
+
+    private void DefaultInit(TimeFormat timeFormat)
+    {
+        TimeFormat = timeFormat;
+        DateEnd = new DateTime(DateTime.Now.Year, 12, 31);
+        DateStart = DateService.ResetDate(DateService.AddDate(DateEnd, timeFormat, -GetOffset(timeFormat)), timeFormat, true);
+    }
+
+    private async Task ChangeDate(int offset, TimeFormat timeFormat)
+    {
+        if (TimeFormat != TimeFormat.Hour)
+        {
+            DateStart = DateService.AddDate(DateStart, TimeFormat, offset);
+            TimeFormat -= 1;
+            await SetDatesOnRowClick(TimeFormat + 1);
+        }
+    }
+
+    private async Task SetDatesOnRowClick(TimeFormat timeFormat)
+    {
+        DateStart = DateService.ResetDate(DateStart, timeFormat, true);
+        DateEnd = DateService.ResetDate(DateStart, timeFormat, false);
+
+        await Task.CompletedTask;
+    }
+
+    private void AdjustDates(int offset)
+    {
+        DateStart = DateService.AddDate(DateStart, TimeFormat, offset);
+        DateEnd = DateService.AddDate(DateEnd, TimeFormat, offset);
+    }
+
+    private int GetOffset(TimeFormat timeFormat)
+    {
+        return timeFormat switch
+        {
+            TimeFormat.Hour => 23,
+            TimeFormat.Day => 31,
+            TimeFormat.Month => 12,
+            TimeFormat.Year => 12,
+            _ => 10,
+        };
+    }
+}

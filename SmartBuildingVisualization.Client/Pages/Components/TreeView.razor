@@ -1,0 +1,199 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Client.Pages.Components.Visualization
+@using SmartBuildingVisualization.Shared.Models
+@using System.Collections.ObjectModel
+
+@inject IDataService DataService
+@inject ILocalStorageService localStorageService
+
+@rendermode @(new InteractiveWebAssemblyRenderMode(prerender: true))
+
+
+<div class="d-flex align-items-center mb-2">
+
+    <p class="mb-0">Filtr:  </p>
+    <DxComboBox NullText="Vyber oddělení..."
+                Data="@_Faculties"
+                @bind-Value="@SelectedDepartment"
+                TextFieldName="@nameof(Department.Name)"
+                ClearButtonDisplayMode="DataEditorClearButtonDisplayMode.Auto"
+                CssClass="" />
+</div>
+<div class="">
+    <DxTreeView Data="@BuildingsData"
+                AnimationType="LayoutAnimationType.Slide"
+                ShowFilterPanel="false"
+                @bind-FilterString=@FilterString
+                FilterMode=NavigationFilterMode.EntireBranch
+                FilterMinLength="1"
+                CustomFilter=@CustomFilter
+                CheckedChanged="CheckingChanged"
+                CheckNodeByClick="true"
+                CheckMode="TreeViewCheckMode.Multiple"
+                @ref=DxTreeView>
+        <DataMappings>
+            <DxTreeViewDataMapping Text="Name"
+                                   Children="Floors"
+                                   AllowCheck="AllowCheck" />
+            <DxTreeViewDataMapping Level="1"
+                                   Text="Name"
+                                   Children="Rooms"
+                                   AllowCheck="AllowCheck" />
+            <DxTreeViewDataMapping Level="2"
+                                   Text="Name"
+                                   Children="Devices"  
+                                   AllowCheck="AllowCheck" />
+            <DxTreeViewDataMapping Level="3"
+                                   Text="Name"
+                                   AllowCheck="AllowCheck" />
+        </DataMappings>
+    </DxTreeView>
+</div>
+
+@code {
+    [Parameter]
+    public Action<List<IObject>> OnCheckedItemsChanged { get; set; }
+    [Parameter]
+    public List<IObject> InitialData { get; set; }
+
+    private bool initial = true;
+
+    private ObservableCollection<Building> BuildingsData = new ObservableCollection<Building>();
+    private ObservableCollection<Department> _Faculties = new ObservableCollection<Department>();
+    private List<BuildingGraph> _Graphs = new List<BuildingGraph>();
+    private Department? _SelectedDepartment;
+    public Department? SelectedDepartment
+    {
+        get => _SelectedDepartment;
+        set
+        {
+            _SelectedDepartment = value;
+            FilterString = _SelectedDepartment?.DepartmentId.ToString() ?? "";
+            localStorageService.SetItemAsync("SelectedDepartment", _SelectedDepartment);
+        }
+    }
+
+    List<IObject> Checked = new List<IObject>();
+    DxTreeView DxTreeView;
+
+    private IObject? SelectedItem;
+
+    string FilterString = "";
+
+    private float Consumption { get; set; } = 0;
+
+    protected override void OnInitialized()
+    {
+        _Faculties = DataService.GetAllDepartments();
+    }
+    protected override async Task OnInitializedAsync()
+    {
+        BuildingsData = await DataService.GetStructureAsync();
+    }
+    protected override void OnParametersSet()
+    {
+        if (InitialData != null && initial)
+        {
+            SelectedNodeChanged(InitialData);
+            initial = false;
+        }
+    }
+
+    protected override async Task OnAfterRenderAsync(bool firstRender)
+    {
+        if (firstRender)
+        {
+            SelectedNodeChanged(InitialData);
+        }
+    }
+
+    bool CustomFilter(ITreeViewNodeInfo info)
+    {
+        if (info.DataItem is Room room)
+        {
+            if (room.DepartmentId == int.Parse(FilterString))
+            {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /// <summary>
+    /// Volána v případě změny výběru ve stromu.
+    /// </summary>
+    /// <param name="e"></param>
+    void CheckingChanged(TreeViewCheckedChangedEventArgs e)
+    {
+
+        List<IObject> Checked = new List<IObject>();
+
+        if (e.LastCheckedItems.Count > 0)
+        {
+
+            var nodesToBlock = DxTreeView.GetNodesInfo((n) => n.Level != e.LastCheckedItems.First().Level);
+            foreach (ITreeViewNodeInfo node in nodesToBlock)
+            {
+                ((IObject)node.DataItem).AllowCheck = false;
+            }           
+        }
+        else if (e.LastUncheckedItems.Count > 0 && e.CheckedItems.Count == 0)
+        {
+            var nodesToUnblock = DxTreeView.GetNodesInfo((n) => n.Level != e.LastUncheckedItems.First().Level);
+            foreach (ITreeViewNodeInfo node in nodesToUnblock)
+            {
+                ((IObject)node.DataItem).AllowCheck = true;
+            }         
+        }
+
+        foreach (var item in e.CheckedItems)
+        {
+            Checked.Add((IObject)item.DataItem);
+        }
+        OnCheckedItemsChanged(Checked);
+    }
+
+    /// <summary>
+    /// 
+    /// </summary>
+    /// <param name="obj"></param>
+    public void SelectedNodeChanged(List<IObject> obj)
+    {
+        if (InitialData != null && DxTreeView != null)
+        {
+            var data = DxTreeView.Data;
+            foreach (IObject node in data)
+            {
+                node.AllowCheck = true;
+            }
+        }
+        if (InitialData != null)
+        {
+            if (DxTreeView != null)
+            {
+                DxTreeView.SetNodesChecked((n) => obj.Contains((IObject)n.DataItem), true);
+            }
+        }
+    }
+    /// <summary>
+    /// Označí všechny potomky vybraných uzlů.
+    /// </summary>
+    public void SelectAllChildFromSelectedNodes()
+    {
+        var checkedNodes = DxTreeView.GetCheckedNodeInfo().ToList();
+
+        if (!checkedNodes[0].IsLeaf)
+        {
+            DxTreeView.ClearCheck();
+
+            foreach (var node in checkedNodes)
+            {
+                foreach (var childNode in node.Children)
+                {
+                    DxTreeView.SetNodesChecked((n) => n.DataItem == childNode.DataItem, true);
+                    DxTreeView.ExpandToNode((n) => n.DataItem == childNode.DataItem);
+                }
+            }
+        }
+    }
+}

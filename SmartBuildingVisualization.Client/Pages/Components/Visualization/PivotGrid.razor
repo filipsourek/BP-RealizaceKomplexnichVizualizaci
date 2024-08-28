@@ -1,0 +1,107 @@
+﻿@using SmartBuildingVisualization.Client.Core.Interfaces
+@using SmartBuildingVisualization.Shared.Models
+@using System.Diagnostics
+@using System.Collections.ObjectModel
+@using System.Globalization
+
+@inject IDataService DataService
+
+<div class="">
+    <div>
+        <DxChart Data="@(Consumptions.ChartDataSource)" Width="100%" >
+            <DxChartLegend Position="RelativePosition.Outside" VerticalAlignment="VerticalEdge.Bottom"
+                           CssClass="shadow border justify-content-around" />
+            <DxChartCommonSeries NameField="@((IChartDataItem s) => GetName(s.SeriesName.ToString()).Result)"
+                                 ArgumentField="@(s => s.Argument)"
+                                 ValueField="@(s => s.Value)"
+                                 PaneField="@(s => s.ValueFieldName)"
+                                 SeriesType="ChartSeriesType.Bar" >
+            </DxChartCommonSeries>
+
+            <DxChartArgumentAxis>
+
+            </DxChartArgumentAxis>
+
+        </DxChart>
+    </div>
+    <div class="mt-4">
+        
+        <DxPivotGrid @ref="pivotGrid" Data="@(Consumptions.PivotGridDataSource)" T="DeviceConsumptionExtended" CssClass="">
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.BuildingId)" Caption="Budova" SortOrder="PivotGridSortOrder.Ascending" Area="PivotGridFieldArea.Row" >
+                <HeaderTemplate>@string.Format("{0}", BuildingsStructure.First(o => o.Id == int.Parse(context.ToString())).Name)</HeaderTemplate>
+            </DxPivotGridField>
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.FloorId)" Caption="Patro" SortOrder="PivotGridSortOrder.Ascending" Area="PivotGridFieldArea.Row">
+                <HeaderTemplate>@string.Format("{0}", BuildingsStructure.SelectMany(o => o.Floors).First(o => o.Id == int.Parse(context.ToString())).Name)</HeaderTemplate>
+            </DxPivotGridField>
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.RoomId)" Caption="Místnost" SortOrder="PivotGridSortOrder.Ascending" Area="PivotGridFieldArea.Row">
+                <HeaderTemplate>@string.Format("{0}", BuildingsStructure.SelectMany(o => o.Floors).SelectMany(o => o.Rooms).First(o => o.Id == int.Parse(context.ToString())).Name)</HeaderTemplate>
+            </DxPivotGridField>
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.DeviceId)" Caption="Zařízení" Area="PivotGridFieldArea.Row">
+                <HeaderTemplate>@string.Format("{0}", BuildingsStructure.SelectMany(o => o.GetAllDevices()).First(o => o.Id == int.Parse(context.ToString())).Name)</HeaderTemplate>
+            </DxPivotGridField>
+
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.Date)" GroupInterval="PivotGridGroupInterval.Year" Area="PivotGridFieldArea.Column" Caption="Rok" />
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.Date)" GroupInterval="PivotGridGroupInterval.Quarter" Area="PivotGridFieldArea.Column" Caption="Čtvrtletí">
+                <HeaderTemplate>@string.Format("Q{0}", context)</HeaderTemplate>
+            </DxPivotGridField>
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.Date)" GroupInterval="PivotGridGroupInterval.Month" Area="PivotGridFieldArea.Column" Caption="Měsíce">
+                <HeaderTemplate>@CultureInfo.CurrentCulture.DateTimeFormat.GetMonthName((int)context)</HeaderTemplate>
+            </DxPivotGridField>
+
+            <DxPivotGridField Field="@nameof(DeviceConsumptionExtended.Consumption)" Caption="Spotřeba [kWh]" Area="PivotGridFieldArea.Data" SummaryType="PivotGridSummaryType.Sum">
+                <DataTemplate>
+                    <span class="">
+                        @string.Format("{0:0.0}", context)
+                    </span>
+                </DataTemplate>
+            </DxPivotGridField>
+        </DxPivotGrid>
+        
+    </div>
+</div>
+
+@code {
+    [Parameter] public int Id { get; set; }
+
+
+    DxPivotGridDataProvider<DeviceConsumptionExtended> Consumptions;
+    public ObservableCollection<Building> BuildingsStructure { get; set; }
+
+    DxPivotGrid pivotGrid;
+
+
+    protected override async Task OnInitializedAsync()
+    {
+        BuildingsStructure = await DataService.GetStructureAsync();
+        Consumptions = DxPivotGridDataProvider<DeviceConsumptionExtended>.Create(DataService.GetConsumptionsExtendedAsync(new DateTime(2000, 1, 1), new DateTime(2040, 1, 1), TimeFormat.Month));
+    }
+
+    protected override async Task OnParametersSetAsync()
+    {
+        base.OnParametersSet();
+    }
+
+
+    private async Task<string> GetName(string ids)
+    {
+        var idList = ids.Split('-');
+        var names = new List<string>();
+
+        foreach (var id in idList)
+        {
+            string name;
+            try
+            {
+                var obj = await DataService.GetObjectFromId(int.Parse(id.Trim()));
+                name = obj.Name;
+            }
+            catch (KeyNotFoundException)
+            {
+                name = "N/A";
+            }
+            names.Add(name);
+        }
+
+        return string.Join(", ", names);
+    }
+}
